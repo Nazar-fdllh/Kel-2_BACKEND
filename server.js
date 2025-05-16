@@ -67,6 +67,19 @@ app.put('/user-levels/:id', async (req, res) => {
   }
 });
 
+app.delete('/user-levels/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM USER_LEVEL WHERE ID_LEVEL = ?',
+      [req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'User level not found' });
+    res.json({ message: 'User level deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // USERS CRUD
 // ==============================================
@@ -114,6 +127,19 @@ app.put('/users/:level/:id', async (req, res) => {
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: 'User updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/users/:level/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM USERS WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [req.params.level, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: 'User deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -168,6 +194,19 @@ app.put('/jenis-kelamin/:id', async (req, res) => {
   }
 });
 
+app.delete('/jenis-kelamin/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM KOL_JK WHERE ID_JK = ?',
+      [req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Jenis kelamin not found' });
+    res.json({ message: 'Jenis kelamin deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // KOL_KOTA CRUD
 // ==============================================
@@ -217,6 +256,19 @@ app.put('/kota/:id', async (req, res) => {
   }
 });
 
+app.delete('/kota/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM KOL_KOTA WHERE ID_KOTA = ?',
+      [req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Kota not found' });
+    res.json({ message: 'Kota deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // PERKULIAHAN CRUD
 // ==============================================
@@ -261,6 +313,19 @@ app.put('/perkuliahan/:id', async (req, res) => {
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Perkuliahan not found' });
     res.json({ message: 'Perkuliahan updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/perkuliahan/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM PERKULIAHAN WHERE ID_PERKULIAHAN = ?',
+      [req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Perkuliahan not found' });
+    res.json({ message: 'Perkuliahan deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -318,6 +383,19 @@ app.put('/kelas/:perkuliahan/:id', async (req, res) => {
   }
 });
 
+app.delete('/kelas/:perkuliahan/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM KELAS WHERE ID_PERKULIAHAN = ? AND ID_KELAS = ?',
+      [req.params.perkuliahan, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Kelas not found' });
+    res.json({ message: 'Kelas deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // KOL_KEHADIRAN CRUD
 // ==============================================
@@ -370,6 +448,19 @@ app.put('/kehadiran/:perkuliahan/:id', async (req, res) => {
   }
 });
 
+app.delete('/kehadiran/:perkuliahan/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM KOL_KEHADIRAN WHERE ID_PERKULIAHAN = ? AND ID_KEHADIRAN = ?',
+      [req.params.perkuliahan, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Kehadiran not found' });
+    res.json({ message: 'Kehadiran deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // MAHASISWA CRUD
 // ==============================================
@@ -414,6 +505,19 @@ app.put('/mahasiswa/:nim', async (req, res) => {
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Mahasiswa not found' });
     res.json({ message: 'Mahasiswa updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/mahasiswa/:nim', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM MAHASISWA WHERE NIM = ?',
+      [req.params.nim]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Mahasiswa not found' });
+    res.json({ message: 'Mahasiswa deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -480,6 +584,19 @@ app.put('/pegawai/:jk/:kota/:level/:user/:id', async (req, res) => {
   }
 });
 
+app.delete('/pegawai/:jk/:kota/:level/:user/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM PEGAWAI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
+      [req.params.jk, req.params.kota, req.params.level, req.params.user, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Pegawai not found' });
+    res.json({ message: 'Pegawai deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==============================================
 // MATAKULIAH CRUD
 // ==============================================
@@ -532,6 +649,19 @@ app.put('/matakuliah/:jk/:kota/:level/:user/:pegawai/:id', async (req, res) => {
     
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Mata kuliah not found' });
     res.json({ message: 'Mata kuliah updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/matakuliah/:jk/:kota/:level/:user/:pegawai/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM MATAKULIAH WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND ID_MK = ?',
+      [req.params.jk, req.params.kota, req.params.level, req.params.user, req.params.pegawai, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Mata kuliah not found' });
+    res.json({ message: 'Mata kuliah deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -590,6 +720,19 @@ app.put('/presensi/:jk/:kota/:level/:user/:pegawai/:id', async (req, res) => {
     
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Presensi not found' });
     res.json({ message: 'Presensi updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/presensi/:jk/:kota/:level/:user/:pegawai/:id', async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND ID_PRESENSI = ?',
+      [req.params.jk, req.params.kota, req.params.level, req.params.user, req.params.pegawai, req.params.id]
+    );
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Presensi not found' });
+    res.json({ message: 'Presensi deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
