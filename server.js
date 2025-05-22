@@ -2,10 +2,45 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// JWT Secret Key
+const JWT_SECRET = 'simpeg_secret_key';
+
+// Multer configuration for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = './uploads';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir);
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5000000 }, // 5MB file size limit
+  fileFilter: function (req, file, cb) {
+    const filetypes = /jpeg|jpg|png/;
+    const mimetype = filetypes.test(file.mimetype);
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    if (mimetype && extname) {
+      return cb(null, true);
+    }
+    cb(new Error('Only .png, .jpg and .jpeg format allowed!'));
+  }
+});
 
 // Database connection
 const pool = mysql.createPool({
@@ -16,6 +51,336 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
+});
+
+// Middleware to verify JWT token
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Access denied. No token provided.' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    res.status(400).json({ error: 'Invalid token.' });
+  }
+};
+
+// 1. Login route
+app.post('/login', async (req, res) => {
+  try {
+    const { USERNAME, PASSWORD } = req.body;
+    
+    // Validate input
+    if (!USERNAME || !PASSWORD) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    // Check if user exists
+    const [users] = await pool.query(
+      'SELECT * FROM USERS WHERE USERNAME = ? AND PASSWORD = ?',
+      [USERNAME, PASSWORD]
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const user = users[0];
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        ID_LEVEL: user.ID_LEVEL, 
+        ID_USER: user.ID_USER 
+      }, 
+      JWT_SECRET, 
+      { expiresIn: '1h' }
+    );
+
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Protected API data route
+app.get('/api/data', verifyToken, async (req, res) => {
+  try {
+    // Get user information from token
+    const { ID_LEVEL, ID_USER } = req.user;
+
+    // Get employee data
+    const [pegawai] = await pool.query(
+      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [ID_LEVEL, ID_USER]
+    );
+
+    if (pegawai.length === 0) {
+      return res.status(404).json({ error: 'Employee data not found' });
+    }
+
+    const employeeData = pegawai[0];
+
+    // Check if user is a lecturer (assume ID_LEVEL for lecturer is 2, adjust as needed)
+    if (ID_LEVEL === 2) {
+      // Get courses taught by the lecturer
+      const [matakuliah] = await pool.query(
+        'SELECT * FROM MATAKULIAH WHERE ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
+        [ID_LEVEL, ID_USER, employeeData.ID_PEGAWAI]
+      );
+
+      // Return employee data with courses
+      return res.json({
+        pegawai: employeeData,
+        matakuliah: matakuliah
+      });
+    }
+
+    // Return only employee data for non-lecturers
+    res.json({ pegawai: employeeData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. API profiling data route
+app.get('/api/data/profiling', verifyToken, async (req, res) => {
+  try {
+    // Get user information from token
+    const { ID_LEVEL, ID_USER } = req.user;
+
+    // Get employee data
+    const [pegawai] = await pool.query(
+      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [ID_LEVEL, ID_USER]
+    );
+
+    if (pegawai.length === 0) {
+      return res.status(404).json({ error: 'Employee data not found' });
+    }
+
+    // Return employee data
+    res.json({ pegawai: pegawai[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Update profiling route with file upload
+app.put('/api/update-profiling', verifyToken, upload.single('profile_picture'), async (req, res) => {
+  try {
+    // Get user information from token
+    const { ID_LEVEL, ID_USER } = req.user;
+    
+    // Check if employee exists
+    const [existingPegawai] = await pool.query(
+      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [ID_LEVEL, ID_USER]
+    );
+
+    if (existingPegawai.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    const pegawai = existingPegawai[0];
+    
+    // Prepare update data
+    const {
+      NAMA_PEGAWAI, 
+      DATE_PEG, 
+      ALAMAT_PEG, 
+      DOMISILI_PEG, 
+      TELP_PEG,
+      ID_PERKULIAHAN
+    } = req.body;
+    
+    // Check if file was uploaded
+    let PP_PEG = pegawai.PP_PEG;
+    if (req.file) {
+      // If there was an old profile picture, delete it
+      if (pegawai.PP_PEG && fs.existsSync(pegawai.PP_PEG)) {
+        fs.unlinkSync(pegawai.PP_PEG);
+      }
+      PP_PEG = req.file.path;
+    }
+
+    // Update employee data
+    await pool.query(
+      'UPDATE PEGAWAI SET NAMA_PEGAWAI = ?, DATE_PEG = ?, ALAMAT_PEG = ?, DOMISILI_PEG = ?, TELP_PEG = ?, PP_PEG = ?, ID_PERKULIAHAN = ? WHERE ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
+      [
+        NAMA_PEGAWAI, 
+        DATE_PEG, 
+        ALAMAT_PEG, 
+        DOMISILI_PEG, 
+        TELP_PEG, 
+        PP_PEG,
+        ID_PERKULIAHAN,
+        ID_LEVEL, 
+        ID_USER, 
+        pegawai.ID_PEGAWAI
+      ]
+    );
+
+    res.json({ message: 'Profile updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Get attendance data
+app.get('/api/data/presensi', verifyToken, async (req, res) => {
+  try {
+    // Get user information from token
+    const { ID_LEVEL, ID_USER } = req.user;
+
+    // Get employee data
+    const [pegawai] = await pool.query(
+      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [ID_LEVEL, ID_USER]
+    );
+
+    if (pegawai.length === 0) {
+      return res.status(404).json({ error: 'Employee data not found' });
+    }
+
+    const employeeData = pegawai[0];
+    
+    // Get current date in YYYY-MM-DD format
+    const today = new Date();
+    const formattedDate = today.toISOString().split('T')[0];
+    
+    // Check if there's already an attendance record for today
+    const [existingAttendance] = await pool.query(
+      'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND DATE(WAKTU_MASUK) = ?',
+      [
+        employeeData.ID_JK,
+        employeeData.ID_KOTA,
+        ID_LEVEL,
+        ID_USER,
+        employeeData.ID_PEGAWAI,
+        formattedDate
+      ]
+    );
+
+    // Get all attendance records for the employee
+    const [allAttendance] = await pool.query(
+      'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
+      [
+        employeeData.ID_JK,
+        employeeData.ID_KOTA,
+        ID_LEVEL,
+        ID_USER,
+        employeeData.ID_PEGAWAI
+      ]
+    );
+
+    // Check if it's after 9 AM and no attendance record for today
+    const currentHour = today.getHours();
+    
+    if (existingAttendance.length === 0 && currentHour >= 9) {
+      // Add an "absent" record since it's after 9 AM and no check-in
+      const newPresensiId = Date.now().toString(); // Generate a unique ID
+      await pool.query(
+        'INSERT INTO PRESENSI (ID_JK, ID_KOTA, ID_LEVEL, ID_USER, ID_PEGAWAI, ID_PRESENSI, STATUS_PRESENSI, WAKTU_MASUK, WAKTU_KELUAR) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          employeeData.ID_JK,
+          employeeData.ID_KOTA,
+          ID_LEVEL,
+          ID_USER,
+          employeeData.ID_PEGAWAI,
+          newPresensiId,
+          'alfa',
+          `${formattedDate} 09:00:00`,
+          `${formattedDate} 17:00:00`
+        ]
+      );
+      
+      // Get updated attendance records
+      const [updatedAttendance] = await pool.query(
+        'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
+        [
+          employeeData.ID_JK,
+          employeeData.ID_KOTA,
+          ID_LEVEL,
+          ID_USER,
+          employeeData.ID_PEGAWAI
+        ]
+      );
+      
+      return res.json({
+        presensi: updatedAttendance,
+        hasTodayAttendance: true
+      });
+    }
+    
+    // If no attendance record for today
+    if (existingAttendance.length === 0) {
+      return res.json({
+        presensi: allAttendance,
+        hasTodayAttendance: false
+      });
+    }
+    
+    // If there's already an attendance record for today
+    res.json({
+      presensi: allAttendance,
+      hasTodayAttendance: true
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Update attendance record
+app.post('/api/update-presensi', verifyToken, async (req, res) => {
+  try {
+    // Get user information from token
+    const { ID_LEVEL, ID_USER } = req.user;
+
+    // Get employee data
+    const [pegawai] = await pool.query(
+      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
+      [ID_LEVEL, ID_USER]
+    );
+
+    if (pegawai.length === 0) {
+      return res.status(404).json({ error: 'Employee data not found' });
+    }
+
+    const employeeData = pegawai[0];
+    
+    // Get attendance data from request body
+    const { WAKTU_MASUK, WAKTU_KELUAR } = req.body;
+    
+    // Generate unique ID for the attendance record
+    const newPresensiId = Date.now().toString();
+    
+    // Insert attendance record
+    await pool.query(
+      'INSERT INTO PRESENSI (ID_JK, ID_KOTA, ID_LEVEL, ID_USER, ID_PEGAWAI, ID_PRESENSI, STATUS_PRESENSI, WAKTU_MASUK, WAKTU_KELUAR) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        employeeData.ID_JK,
+        employeeData.ID_KOTA,
+        ID_LEVEL,
+        ID_USER,
+        employeeData.ID_PEGAWAI,
+        newPresensiId,
+        'hadir',
+        WAKTU_MASUK,
+        WAKTU_KELUAR || null
+      ]
+    );
+    
+    res.json({ message: 'Attendance record added successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==============================================
@@ -388,58 +753,6 @@ app.delete('/kelas/:perkuliahan/:id', async (req, res) => {
     const [result] = await pool.query(
       'DELETE FROM KELAS WHERE ID_PERKULIAHAN = ? AND ID_KELAS = ?',
       [req.params.perkuliahan, req.params.id]
-    );
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Kelas not found' });
-    res.json({ message: 'Kelas deleted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==============================================
-// KOL_KEHADIRAN CRUD
-// ==============================================
-app.get('/kehadiran', async (req, res) => {
-  try {
-    const [rows] = await pool.query('SELECT * FROM KOL_KEHADIRAN');
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/kehadiran/:perkuliahan/:id', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      'SELECT * FROM KOL_KEHADIRAN WHERE ID_PERKULIAHAN = ? AND ID_KEHADIRAN = ?',
-      [req.params.perkuliahan, req.params.id]
-    );
-    if (rows.length === 0) return res.status(404).json({ error: 'Kehadiran not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/kehadiran', async (req, res) => {
-  try {
-    const { ID_PERKULIAHAN, ID_KEHADIRAN, STATUS_KEHADIRAN, KET_KEHADIRAN } = req.body;
-    const [result] = await pool.query(
-      'INSERT INTO KOL_KEHADIRAN (ID_PERKULIAHAN, ID_KEHADIRAN, STATUS_KEHADIRAN, KET_KEHADIRAN) VALUES (?, ?, ?, ?)',
-      [ID_PERKULIAHAN, ID_KEHADIRAN, STATUS_KEHADIRAN, KET_KEHADIRAN]
-    );
-    res.status(201).json({ id: result.insertId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/kehadiran/:perkuliahan/:id', async (req, res) => {
-  try {
-    const { STATUS_KEHADIRAN, KET_KEHADIRAN } = req.body;
-    const [result] = await pool.query(
-      'UPDATE KOL_KEHADIRAN SET STATUS_KEHADIRAN = ?, KET_KEHADIRAN = ? WHERE ID_PERKULIAHAN = ? AND ID_KEHADIRAN = ?',
-      [STATUS_KEHADIRAN, KET_KEHADIRAN, req.params.perkuliahan, req.params.id]
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Kehadiran not found' });
     res.json({ message: 'Kehadiran updated' });
