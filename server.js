@@ -322,8 +322,9 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
     // Check if there's already an attendance record for today
     const [existingAttendance] = await pool.query(`
       SELECT *,
-             DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
-             DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+             TIME_FORMAT(TIME(WAKTU_MASUK), '%H:%i:%S') as WAKTU_MASUK_FORMATTED,
+             TIME_FORMAT(TIME(WAKTU_KELUAR), '%H:%i:%S') as WAKTU_KELUAR_FORMATTED,
+             DATE_FORMAT(DATE(WAKTU_MASUK), '%Y-%m-%d') as TANGGAL_PRESENSI
       FROM PRESENSI 
       WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND DATE(WAKTU_MASUK) = ?
     `, [
@@ -335,11 +336,12 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
       formattedDate
     ]);
 
-    // Get all attendance records for the employee dengan format datetime gabungan
+    // Get all attendance records for the employee dengan format jam dan tanggal terpisah
     const [allAttendance] = await pool.query(`
       SELECT *,
-             DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
-             DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+             TIME_FORMAT(TIME(WAKTU_MASUK), '%H:%i:%S') as WAKTU_MASUK_FORMATTED,
+             TIME_FORMAT(TIME(WAKTU_KELUAR), '%H:%i:%S') as WAKTU_KELUAR_FORMATTED,
+             DATE_FORMAT(DATE(WAKTU_MASUK), '%Y-%m-%d') as TANGGAL_PRESENSI
       FROM PRESENSI 
       WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?
       ORDER BY WAKTU_MASUK DESC
@@ -362,7 +364,8 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
         ID_PRESENSI: record.ID_PRESENSI,
         STATUS_PRESENSI: record.STATUS_PRESENSI,
         WAKTU_MASUK: record.WAKTU_MASUK_FORMATTED,
-        WAKTU_KELUAR: record.WAKTU_KELUAR_FORMATTED
+        WAKTU_KELUAR: record.WAKTU_KELUAR_FORMATTED,
+        TANGGAL_PRESENSI: record.TANGGAL_PRESENSI
       }));
     };
 
@@ -387,11 +390,12 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
         ]
       );
       
-      // Get updated attendance records dengan format datetime gabungan
+      // Get updated attendance records dengan format jam dan tanggal terpisah
       const [updatedAttendance] = await pool.query(`
         SELECT *,
-               DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
-               DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+               TIME_FORMAT(TIME(WAKTU_MASUK), '%H:%i:%S') as WAKTU_MASUK_FORMATTED,
+               TIME_FORMAT(TIME(WAKTU_KELUAR), '%H:%i:%S') as WAKTU_KELUAR_FORMATTED,
+               DATE_FORMAT(DATE(WAKTU_MASUK), '%Y-%m-%d') as TANGGAL_PRESENSI
         FROM PRESENSI 
         WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?
         ORDER BY WAKTU_MASUK DESC
