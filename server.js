@@ -149,24 +149,88 @@ app.get('/api/data', verifyToken, async (req, res) => {
   }
 });
 
-// 3. API profiling data route
+// Solusi 3: Dengan try-catch untuk setiap JOIN - Menampilkan data asli bukan ID
 app.get('/api/data/profiling', verifyToken, async (req, res) => {
   try {
     // Get user information from token
     const { ID_LEVEL, ID_USER } = req.user;
 
-    // Get employee data
-    const [pegawai] = await pool.query(
-      'SELECT * FROM PEGAWAI WHERE ID_LEVEL = ? AND ID_USER = ?',
-      [ID_LEVEL, ID_USER]
-    );
+    // Base query
+    let baseQuery = `
+      SELECT p.*, 
+             DATE_FORMAT(p.DATE_PEG, '%Y-%m-%d') as DATE_PEG_FORMATTED
+      FROM PEGAWAI p
+      WHERE p.ID_LEVEL = ? AND p.ID_USER = ?
+    `;
+
+    // Get basic employee data first
+    const [pegawai] = await pool.query(baseQuery, [ID_LEVEL, ID_USER]);
 
     if (pegawai.length === 0) {
       return res.status(404).json({ error: 'Employee data not found' });
     }
 
+    let employeeData = pegawai[0];
+
+    // Try to get additional data with separate queries
+    try {
+      // Try to get jenis kelamin
+      const [jenisKelamin] = await pool.query(
+        'SELECT JENIS_KELAMIN FROM JENIS_KELAMIN WHERE ID_JK = ?', 
+        [employeeData.ID_JK]
+      );
+      if (jenisKelamin.length > 0) {
+        employeeData.ID_JK = jenisKelamin[0].JENIS_KELAMIN; // Replace ID dengan nama
+      } else {
+        // Jika data tidak ditemukan, berikan nilai default
+        employeeData.ID_JK = employeeData.ID_JK === 1 ? 'Laki-laki' : 'Perempuan';
+      }
+    } catch (err) {
+      // Jika tabel tidak ada, berikan nilai default
+      employeeData.ID_JK = employeeData.ID_JK === 1 ? 'Laki-laki' : 'Perempuan';
+    }
+
+    try {
+      // Try to get kota - nama tabel yang benar adalah kol_kota
+      const [kota] = await pool.query(
+        'SELECT NAMA_KOTA FROM kol_kota WHERE ID_KOTA = ?', 
+        [employeeData.ID_KOTA]
+      );
+      if (kota.length > 0) {
+        employeeData.ID_KOTA = kota[0].NAMA_KOTA; // Replace ID dengan nama kota
+      } else {
+        employeeData.ID_KOTA = `Kota dengan ID: ${employeeData.ID_KOTA}`;
+      }
+    } catch (err) {
+      employeeData.ID_KOTA = `Kota dengan ID: ${employeeData.ID_KOTA}`;
+    }
+
+    try {
+      // Try to get level - nama tabel yang benar adalah user_level
+      const [level] = await pool.query(
+        'SELECT NAMA_LEVEL FROM user_level WHERE ID_LEVEL = ?', 
+        [employeeData.ID_LEVEL]
+      );
+      if (level.length > 0) {
+        employeeData.ID_LEVEL = level[0].NAMA_LEVEL; // Replace ID dengan nama level
+      } else {
+        employeeData.ID_LEVEL = `Level dengan ID: ${employeeData.ID_LEVEL}`;
+      }
+    } catch (err) {
+      employeeData.ID_LEVEL = `Level dengan ID: ${employeeData.ID_LEVEL}`;
+    }
+    
+    // Format response - hapus field keterangan tambahan karena sudah di-replace
+    const formattedData = {
+      ...employeeData,
+      DATE_PEG: employeeData.DATE_PEG_FORMATTED
+    };
+
+    // Hapus field yang tidak perlu
+    delete formattedData.DATE_PEG_FORMATTED;
+
     // Return employee data
-    res.json({ pegawai: pegawai[0] });
+    res.json({ pegawai: formattedData });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -233,7 +297,7 @@ app.put('/api/update-profiling', verifyToken, upload.single('profile_picture'), 
   }
 });
 
-// 5. Get attendance data
+// 5. Get attendance data (DIPERBAIKI) - Dengan format datetime gabungan
 app.get('/api/data/presensi', verifyToken, async (req, res) => {
   try {
     // Get user information from token
@@ -256,36 +320,58 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
     const formattedDate = today.toISOString().split('T')[0];
     
     // Check if there's already an attendance record for today
-    const [existingAttendance] = await pool.query(
-      'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND DATE(WAKTU_MASUK) = ?',
-      [
-        employeeData.ID_JK,
-        employeeData.ID_KOTA,
-        ID_LEVEL,
-        ID_USER,
-        employeeData.ID_PEGAWAI,
-        formattedDate
-      ]
-    );
+    const [existingAttendance] = await pool.query(`
+      SELECT *,
+             DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
+             DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+      FROM PRESENSI 
+      WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ? AND DATE(WAKTU_MASUK) = ?
+    `, [
+      employeeData.ID_JK,
+      employeeData.ID_KOTA,
+      ID_LEVEL,
+      ID_USER,
+      employeeData.ID_PEGAWAI,
+      formattedDate
+    ]);
 
-    // Get all attendance records for the employee
-    const [allAttendance] = await pool.query(
-      'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
-      [
-        employeeData.ID_JK,
-        employeeData.ID_KOTA,
-        ID_LEVEL,
-        ID_USER,
-        employeeData.ID_PEGAWAI
-      ]
-    );
+    // Get all attendance records for the employee dengan format datetime gabungan
+    const [allAttendance] = await pool.query(`
+      SELECT *,
+             DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
+             DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+      FROM PRESENSI 
+      WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?
+      ORDER BY WAKTU_MASUK DESC
+    `, [
+      employeeData.ID_JK,
+      employeeData.ID_KOTA,
+      ID_LEVEL,
+      ID_USER,
+      employeeData.ID_PEGAWAI
+    ]);
+
+    // Function to format attendance data
+    const formatAttendanceData = (attendanceArray) => {
+      return attendanceArray.map(record => ({
+        ID_JK: record.ID_JK,
+        ID_KOTA: record.ID_KOTA,
+        ID_LEVEL: record.ID_LEVEL,
+        ID_USER: record.ID_USER,
+        ID_PEGAWAI: record.ID_PEGAWAI,
+        ID_PRESENSI: record.ID_PRESENSI,
+        STATUS_PRESENSI: record.STATUS_PRESENSI,
+        WAKTU_MASUK: record.WAKTU_MASUK_FORMATTED,
+        WAKTU_KELUAR: record.WAKTU_KELUAR_FORMATTED
+      }));
+    };
 
     // Check if it's after 9 AM and no attendance record for today
     const currentHour = today.getHours();
     
     if (existingAttendance.length === 0 && currentHour >= 9) {
       // Add an "absent" record since it's after 9 AM and no check-in
-      const newPresensiId = Date.now().toString(); // Generate a unique ID
+      const newPresensiId = Date.now().toString();
       await pool.query(
         'INSERT INTO PRESENSI (ID_JK, ID_KOTA, ID_LEVEL, ID_USER, ID_PEGAWAI, ID_PRESENSI, STATUS_PRESENSI, WAKTU_MASUK, WAKTU_KELUAR) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [
@@ -301,20 +387,24 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
         ]
       );
       
-      // Get updated attendance records
-      const [updatedAttendance] = await pool.query(
-        'SELECT * FROM PRESENSI WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?',
-        [
-          employeeData.ID_JK,
-          employeeData.ID_KOTA,
-          ID_LEVEL,
-          ID_USER,
-          employeeData.ID_PEGAWAI
-        ]
-      );
+      // Get updated attendance records dengan format datetime gabungan
+      const [updatedAttendance] = await pool.query(`
+        SELECT *,
+               DATE_FORMAT(WAKTU_MASUK, '%Y-%m-%d %H:%i:%S') as WAKTU_MASUK_FORMATTED,
+               DATE_FORMAT(WAKTU_KELUAR, '%Y-%m-%d %H:%i:%S') as WAKTU_KELUAR_FORMATTED
+        FROM PRESENSI 
+        WHERE ID_JK = ? AND ID_KOTA = ? AND ID_LEVEL = ? AND ID_USER = ? AND ID_PEGAWAI = ?
+        ORDER BY WAKTU_MASUK DESC
+      `, [
+        employeeData.ID_JK,
+        employeeData.ID_KOTA,
+        ID_LEVEL,
+        ID_USER,
+        employeeData.ID_PEGAWAI
+      ]);
       
       return res.json({
-        presensi: updatedAttendance,
+        presensi: formatAttendanceData(updatedAttendance),
         hasTodayAttendance: true
       });
     }
@@ -322,14 +412,14 @@ app.get('/api/data/presensi', verifyToken, async (req, res) => {
     // If no attendance record for today
     if (existingAttendance.length === 0) {
       return res.json({
-        presensi: allAttendance,
+        presensi: formatAttendanceData(allAttendance),
         hasTodayAttendance: false
       });
     }
     
     // If there's already an attendance record for today
     res.json({
-      presensi: allAttendance,
+      presensi: formatAttendanceData(allAttendance),
       hasTodayAttendance: true
     });
   } catch (err) {
